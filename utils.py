@@ -42,6 +42,8 @@ def cal_ssim(im1,im2,M):
     
     return ssim
 
+# TODO remove zeros
+
 def scale_max(df):
     result = pd.DataFrame()
     for label, content in df.items():
@@ -72,6 +74,27 @@ def logNorm(df):
     
 class CalculateMeteics:
     def __init__(self, raw_count, impute_count, prefix, metric, name, read_file=False):
+
+        # self.impute_count_file = impute_count_file
+        # if read_file:
+        #     self.raw_count = pd.read_csv(raw_count_file, header=0, index_col=0).T
+        # self.raw_count = raw_count_file
+        # self.raw_count.columns = [x.upper() for x in self.raw_count.columns]
+        # # self.raw_count = self.make_average(self.raw_count)
+        # self.raw_count = self.raw_count.T
+        # self.raw_count = self.raw_count.loc[~self.raw_count.index.duplicated(keep='first')].T
+        # self.raw_count = self.raw_count.fillna(1e-20)
+        # # idx = self.raw_count > 0
+        
+        # if read_file:
+        #     self.impute_count = pd.read_csv(impute_count_file, header = 0, index_col = 0)
+        # self.impute_count = impute_count_file
+        # self.impute_count.columns = [x.upper() for x in self.impute_count.columns]
+        # # self.impute_count = self.make_average(self.impute_count)
+        # self.impute_count = self.impute_count.T
+        # self.impute_count = self.impute_count.loc[~self.impute_count.index.duplicated(keep='first')].T
+        # self.impute_count = self.impute_count.fillna(1e-20)
+        # self.impute_count[self.raw_count==0] = 0.0
         self.raw_count = raw_count
         self.impute_count = impute_count
         self.impute_count.index = list(self.raw_count.index)
@@ -80,16 +103,19 @@ class CalculateMeteics:
         self.metric = metric
         self.name = name
 
+        # print(self.raw_count.shape, self.impute_count.shape)
+
     def SSIM(self, raw, impute, scale = 'scale_max'):
         if scale == 'scale_max': # large time consumer
             raw = scale_max(raw)
             impute = scale_max(impute)
         else:
             print ('Please note you do not scale data by scale max')
-        # print(raw.shape, impute.shape) # (92614, 1890)
+        print(raw.shape, impute.shape) # (92614, 1890)
         if raw.shape[0] == impute.shape[0]:
             result = pd.DataFrame()
             for label in raw.columns:
+                # print(label) # SERPINA3  should be single column, it is gene
                 if label not in impute.columns:
                     ssim = 0
                 else:
@@ -97,7 +123,9 @@ class CalculateMeteics:
                     impute_col = impute.loc[:,label]
                     impute_col = impute_col.fillna(1e-20)
                     raw_col = raw_col.fillna(1e-20)
+                    # print("PPP",raw_col.shape, impute_col.shape) # PPP (92614, 5) should be (92614,)
                     M = [raw_col.max(),impute_col.max()][raw_col.max()>impute_col.max()]
+                    # print("PPP",raw_col.shape, impute_col.shape)
                     raw_col_2 = np.array(raw_col)
                     raw_col_2 = raw_col_2.reshape(raw_col_2.shape[0],1)
                     impute_col_2 = np.array(impute_col)
@@ -121,6 +149,8 @@ class CalculateMeteics:
                     impute_col = impute.loc[:,label]
                     impute_col = impute_col.fillna(1e-20)
                     raw_col = raw_col.fillna(1e-20)
+                    # print('raw_col',raw_col)
+                    # print('impute_col',impute_col)
                     try:
                         pearsonr, _ = st.pearsonr(raw_col,impute_col)
                     except:
@@ -150,6 +180,10 @@ class CalculateMeteics:
                     M = (raw_col.to_numpy() + impute_col.to_numpy())/2
                     t1 = st.entropy(raw_col, M)
                     t2 = st.entropy(impute_col, M)
+                    # t1 = st.entropy(raw_col, M)
+                    # t2 = st.entropy(impute_col, M)
+                    # t1 = np.sum(raw_col* np.log(raw_col / M))
+                    # t2 = np.sum(impute_col * np.log(impute_col/M))
                     JS = (t1 + t2) / 2
 
                 JS_df = pd.DataFrame(JS, index=["JS"],columns=[label])
@@ -186,16 +220,23 @@ class CalculateMeteics:
         raw = self.raw_count
         impute = self.impute_count
         impute[impute < 0] = 0
+
         # print(impute.index)
         # print(raw.index)
 
         prefix = self.prefix
+        # print('SSIM')
         SSIM = self.SSIM(raw,impute)
+        # exit()
+        # print('PCC')
         Pearson = self.PCC(raw, impute)
+        # print('Pearson', Pearson)  # [1 rows x 117 columns], 展示每一个gene（177） 的PCC指数
         JS = self.JS(raw, impute)
+        # print('RMSE')
         RMSE = self.RMSE(raw, impute)
         
         result_all = pd.concat([Pearson, SSIM, RMSE, JS],axis=0)
+#         result_all = pd.concat([JS],axis=0)
         if K == 'none':
             save_path = os.path.join(prefix, self.name+"_Metrics.txt")
         else:

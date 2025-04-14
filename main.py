@@ -10,9 +10,126 @@ from options import Options
 from dataset import ImputationDataset
 from tqdm import tqdm
 from SpaIM import ImputeModule
-from utils import *
+from captum.attr import LayerGradientShap
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0' 
+def explain(opt):
+    valdataset = ImputationDataset(opt, istrain='val')
+    gene_names, cell_names = valdataset.get_eval_names()
+    opt.sc_dim = valdataset.get_cluster_dim()
+
+    valdataloader = torch.utils.data.DataLoader(
+        valdataset, 
+        batch_size=opt.batch_size, 
+        shuffle=False, 
+        num_workers=0
+    )
+
+    model = ImputeModule(opt).cuda()
+
+    model.load(os.path.join(opt.save_path, 'last_%d.pth'%(opt.kfold)))
+
+    test_seq = []
+    test_st_style = []
+    for i, (seq, st_style, spa, seq_cls) in enumerate(valdataloader):
+        test_seq.append(seq)
+        test_st_style.append(st_style)
+
+    test_seq = torch.cat(test_seq, dim=0)
+    test_st_style = torch.cat(test_st_style, dim=0)
+    test_inputs = torch.cat([test_seq, test_st_style], dim=1)
+    
+    # cont 512
+    target_layer = model.model.sc_enc1_cont.l
+    shap_func = LayerGradientShap(model.model.explain, target_layer)
+    baseline_seq = torch.zeros_like(test_seq)#.cuda()
+    baseline_style = torch.zeros_like(test_st_style)#.cuda()
+    attributions = None
+    for i in tqdm(range(0, len(cell_names))):
+        attribution = shap_func.attribute(
+            (test_seq, test_st_style),
+            baselines=(baseline_seq, baseline_style),
+            target=i
+        )
+        if attributions is None:
+            attributions = attribution
+        else:
+            attributions = attributions + attribution
+    
+    # normalize the shape values
+    attributions = attributions / len(cell_names)
+    print("attributions: ", attributions.shape, len(gene_names), len(cell_names))
+    df = pd.DataFrame(attributions.T.cpu().numpy(), columns=gene_names)
+    df.to_pickle(os.path.join(opt.save_path, "cont_gradshap_512_%d.pkl"%(opt.kfold)))
+
+    # cont 256
+    target_layer = model.model.sc_enc2_cont.l
+    shap_func = LayerGradientShap(model.model.explain, target_layer)
+    baseline_seq = torch.zeros_like(test_seq)#.cuda()
+    baseline_style = torch.zeros_like(test_st_style)#.cuda()
+    attributions = None
+    for i in tqdm(range(0, len(cell_names))):
+        attribution = shap_func.attribute(
+            (test_seq, test_st_style),
+            baselines=(baseline_seq, baseline_style),
+            target=i
+        )
+        if attributions is None:
+            attributions = attribution
+        else:
+            attributions = attributions + attribution
+    
+    # normalize the shape values
+    attributions = attributions / len(cell_names)
+    print("attributions: ", attributions.shape, len(gene_names), len(cell_names))
+    df = pd.DataFrame(attributions.T.cpu().numpy(), columns=gene_names)
+    df.to_pickle(os.path.join(opt.save_path, "cont_gradshap_256_%d.pkl"%(opt.kfold)))
+
+    # style 512
+    target_layer = model.model.enc_style1.l
+    shap_func = LayerGradientShap(model.model.explain, target_layer)
+    baseline_seq = torch.zeros_like(test_seq).cuda()
+    baseline_style = torch.zeros_like(test_st_style).cuda()
+    attributions = None
+    for i in tqdm(range(0, len(cell_names))):
+        attribution = shap_func.attribute(
+            (test_seq.cuda(), test_st_style.cuda()),
+            baselines=(baseline_seq, baseline_style),
+            target=i
+        )
+        if attributions is None:
+            attributions = attribution
+        else:
+            attributions = attributions + attribution
+    
+    # normalize the shape values
+    attributions = attributions / len(cell_names)
+    print("attributions: ", attributions.shape, len(gene_names), len(cell_names))
+    df = pd.DataFrame(attributions.T.cpu().numpy(), columns=gene_names)
+    df.to_pickle(os.path.join(opt.save_path, "style_gradshap_512_%d.pkl"%(opt.kfold)))
+
+    # style 256
+    target_layer = model.model.enc_style2.l
+    shap_func = LayerGradientShap(model.model.explain, target_layer)
+    baseline_seq = torch.zeros_like(test_seq).cuda()
+    baseline_style = torch.zeros_like(test_st_style).cuda()
+    attributions = None
+    for i in tqdm(range(0, len(cell_names))):
+        attribution = shap_func.attribute(
+            (test_seq.cuda(), test_st_style.cuda()),
+            baselines=(baseline_seq, baseline_style),
+            target=i
+        )
+        if attributions is None:
+            attributions = attribution
+        else:
+            attributions = attributions + attribution
+    
+    # normalize the shape values
+    attributions = attributions / len(cell_names)
+    print("attributions: ", attributions.shape, len(gene_names), len(cell_names))
+    df = pd.DataFrame(attributions.T.cpu().numpy(), columns=gene_names)
+    df.to_pickle(os.path.join(opt.save_path, "style_gradshap_256_%d.pkl"%(opt.kfold)))
 
 def val(opt):
     valdataset = ImputationDataset(opt, istrain='val')
@@ -59,9 +176,11 @@ def val(opt):
     df2 = pd.DataFrame(input_result, index=cell_names, columns=gene_names)
     df2.to_pickle(os.path.join(opt.save_path, 'input_result_%d.pkl'%(opt.kfold)))
 
-    evaluate = CalculateMeteics(df2, df1, opt.save_path, 'None', 'SpaImputation')
-    acc = evaluate.compute_all(opt.kfold)
-    print('PCC = ', acc.T['PCC'].mean())
+    # np.save(os.path.join(opt.save_path, 'impute_result_%d.npy'%(opt.kfold)), eval_result)
+    # np.save(os.path.join(opt.save_path, 'input_result_%d.npy'%(opt.kfold)), input_result)
+    # evaluate = CalculateMeteics(df2, df1, opt.save_path, 'None', 'SpaImputation')
+    # acc = evaluate.compute_all(i)
+    # print(acc.T['PCC'].mean(), acc.T['JS'].mean())
 
 def Data_augmentation(data1, data2, data3, times=2, zero_fraction=0.1):
     """
@@ -149,8 +268,10 @@ if __name__ == '__main__':
     seed_everything(opt.seed)
     if opt.val_only == 0:
         train(opt)
-        val(opt)
+        # val(opt)
+        # explain(opt)
     else:
         val(opt)
+    explain(opt)
 
     torch.cuda.empty_cache()

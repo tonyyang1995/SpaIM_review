@@ -10,7 +10,6 @@ def gram_matrix(feat):
     G = torch.mm(feat, feat.t()) # b * d * d * b
     return G.div(b * d)
 
-
 class mlp_simple(nn.Module):
     def __init__(self, input_dim, hidden_dim):
         super().__init__()
@@ -24,7 +23,6 @@ class mlp_simple(nn.Module):
             x = self.norm(x)
             x = self.relu(x)
         return x
-
 
 class Imputation(nn.Module):
     def __init__(self, scdim, stdim, style_dim, hidden_dims):
@@ -93,6 +91,18 @@ class Imputation(nn.Module):
 
             return {'st_fake': fake_st_up1}
             
+    def explain(self, sc, ststyle):
+        # only have sc and ststyle
+        # generate st_cont
+        sc_cont2 = self.sc_enc2_cont(sc)
+        sc_cont1 = self.sc_enc1_cont(sc_cont2)
+
+        fake_style2 = self.enc_style2(ststyle)
+        fake_style1 = self.enc_style1(ststyle)
+
+        fake_st_up2 = self.st_dec2(sc_cont2 * fake_style2)
+        fake_st_up1 = self.st_dec1(fake_st_up2 + sc_cont1 * fake_style1, use_norm=False)
+        return fake_st_up1
 
 class ImputeModule(nn.Module):
     def __init__(self, opt, istrain=1):
@@ -103,6 +113,7 @@ class ImputeModule(nn.Module):
         self.model = Imputation(opt.sc_dim, opt.st_dim, opt.style_dim, opt.model_layers)
         if opt.parallel:
             self.model = torch.nn.DataParallel(self.model).to(torch.device('cuda'))
+
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=opt.lr, betas=(opt.beta1, opt.beta2))
         self.loss_stat = {}
 
@@ -174,8 +185,11 @@ class ImputeModule(nn.Module):
     def save(self, save_path):
         torch.save(self.model.state_dict(), save_path)
     
-    def load(self, load_path):
-        self.model.load_state_dict(torch.load(load_path))
+    def load(self, load_path, use_gpu=True):
+        if use_gpu:
+            self.model.load_state_dict(torch.load(load_path))
+        else:
+            self.model.load_state_dict(torch.load(load_path, map_location=torch.device('cpu')))
     
     def get_current_loss(self):
         return self.loss_stat
